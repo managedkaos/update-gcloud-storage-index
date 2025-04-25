@@ -34,10 +34,10 @@ lint:
 fmt: black isort
 
 black:
-	black *.py
+	black *.py update-gcloud-storage-index/*.py
 
 isort:
-	isort *.py
+	isort *.py update-gcloud-storage-index/*.py
 
 test:
 	python -m unittest --verbose --failfast
