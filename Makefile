@@ -26,8 +26,8 @@ requirements:
 	pip install --quiet --upgrade --requirement requirements.txt
 
 lint:
-	flake8 --ignore=E501,E231 *.py
-	pylint --errors-only --disable=C0301 *.py
+	flake8 *.py
+	pylint --errors-only *.py
 	black --diff *.py
 	isort --check-only --diff *.py
 
@@ -40,7 +40,7 @@ isort:
 	isort *.py update-gcloud-storage-index/*.py
 
 test:
-	python -m unittest --verbose --failfast
+	python -m unittest ./update-gcloud-storage-index/test_update_storage_index.py
 
 build: lint test
 	docker build --tag $(APP):$(TAG) .

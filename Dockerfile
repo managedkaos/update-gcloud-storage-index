@@ -25,8 +25,5 @@ COPY update_storage_index.py /usr/local/bin/
 # Create directory for credentials
 RUN mkdir -p /root/.config
 
-# Set environment variables
-ENV GOOGLE_APPLICATION_CREDENTIALS=/root/.config/application_default_credentials.json
-
 # Run the script when the container launches
 ENTRYPOINT ["python", "/usr/local/bin/update_storage_index.py"]
