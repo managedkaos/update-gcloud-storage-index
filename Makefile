@@ -40,7 +40,7 @@ isort:
 	isort *.py update-gcloud-storage-index/*.py
 
 test:
-	python -m unittest ./update-gcloud-storage-index/test_update_storage_index.py
+	python -m unittest ./tests/test_update_storage_index.py
 
 build: lint test
 	docker build --tag $(APP):$(TAG) .
