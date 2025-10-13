@@ -1,132 +1,148 @@
 """
-This script lists the contents of a Google Cloud Storage (GCS)
-bucket and generates a simple HTML page
+Hierarchical index generator for a GCS bucket prefix.
+Recursively creates index.html files for all directory levels.
+
+ENV:
+  BUCKET_NAME (required)
+  BUCKET_PREFIX (required, e.g., "bucket-folder-name" or "" for the bucket root)
+  PUBLIC_URL (optional; default https://storage.googleapis.com)
 """
 
 import logging
 import os
+from urllib.parse import quote
 
 from google.cloud import storage
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Constants
 DEFAULT_PUBLIC_URL = os.getenv("PUBLIC_URL", "https://storage.googleapis.com")
-DEFAULT_BUCKET_NAME = ""  # Default bucket
-DEFAULT_PREFIX = ""  # Default directory within the bucket
+DEFAULT_BUCKET_NAME = ""
+DEFAULT_PREFIX = ""
 
 
-def list_bucket_contents(bucket_name, prefix=None):
+def list_level(bucket, prefix):
     """
-    List the contents of a GCS bucket, optionally within a specific prefix (directory).
+    List immediate files and 'folders' under prefix using delimiter='/'
+    Returns (files, folders) where:
+      files   = [("name.ext", "full/object/path")]
+      folders = [("subdir/", "full/object/prefix/")]
     """
-    logger.info(f"Listing contents of bucket '{bucket_name}' with prefix '{prefix}'")
-    client = storage.Client()
-    bucket = client.get_bucket(bucket_name)
-
-    # If prefix is provided, ensure it ends with a slash
     if prefix and not prefix.endswith("/"):
-        prefix = f"{prefix}/"
+        prefix = prefix + "/"
 
-    blobs = bucket.list_blobs(prefix=prefix)
+    blobs_iter = bucket.list_blobs(prefix=prefix, delimiter="/")
 
-    # If we have a prefix, strip it from the blob names
-    if prefix:
-        file_names = [blob.name[len(prefix) :] for blob in blobs if blob.name != prefix]
-    else:
-        file_names = [blob.name for blob in blobs]
+    files = []
+    for blob in blobs_iter:
+        # Only immediate children (thanks to delimiter)
+        name = blob.name[len(prefix):] if prefix else blob.name
+        if name and "/" not in name:
+            files.append((name, blob.name))
 
-    logger.info(f"Found {len(file_names)} files in bucket")
-    return file_names
+    # 'prefixes' are subdirectory-like
+    folders = []
+    for sub_prefix in blobs_iter.prefixes:
+        name = sub_prefix[len(prefix):] if prefix else sub_prefix
+        folders.append((name, sub_prefix))
+
+    return files, folders, prefix
 
 
-def generate_html_page(bucket_name, file_names, prefix=None):
+def breadcrumb(bucket_name, prefix):
     """
-    Generate a simple HTML page listing the contents of the bucket.
+    Make breadcrumb HTML like: bucket / from-cover-to-code / ep1 /
     """
-    logger.info("Generating HTML page")
+    parts = [] if not prefix else [p for p in prefix.strip("/").split("/") if p]
+    crumbs = [f'<a href="{DEFAULT_PUBLIC_URL}/{bucket_name}/index.html">/{bucket_name}</a>']
+    accum = ""
+    for p in parts:
+        accum = f"{accum}{p}/"
+        url = f"{DEFAULT_PUBLIC_URL}/{bucket_name}/{quote(accum)}index.html"
+        crumbs.append(f'<a href="{url}">{p}</a>')
+    return " / ".join(crumbs) + (" /" if parts else "")
+
+
+def generate_html(bucket_name, prefix, files, folders):
     title = f"{bucket_name}/{prefix}" if prefix else bucket_name
+    bc = breadcrumb(bucket_name, prefix or "")
 
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{title}</title>
-    </head>
-    <body>
-        <h1>Contents of {title}</h1>
-        <ul>
-    """
+    html = [
+        "<!DOCTYPE html>",
+        '<html lang="en"><head><meta charset="UTF-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+        f"<title>{title}</title>",
+        # tiny inline styles for readability
+        "<style>body{font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 16px}"
+        "h1{font-size:1.2rem} ul{line-height:1.7} .muted{color:#666;font-size:.9rem}</style>",
+        "</head><body>",
+        f"<h1>Index of <span class='muted'>{bc}</span></h1>",
+        "<h2>Folders</h2>" if folders else "<p class='muted'>No subfolders</p>",
+    ]
 
-    for file_name in file_names:
-        if prefix:
-            public_url = f"{DEFAULT_PUBLIC_URL}/{bucket_name}/{prefix}/{file_name}"
-        else:
-            public_url = f"{DEFAULT_PUBLIC_URL}/{bucket_name}/{file_name}"
-        html_content += f'<li><a href="{public_url}">{file_name}</a></li>\n'
+    if folders:
+        html.append("<ul>")
+        for name, full_prefix in sorted(folders, key=lambda x: x[0].lower()):
+            href = f"{DEFAULT_PUBLIC_URL}/{bucket_name}/{quote(full_prefix)}index.html"
+            html.append(f'<li>📁 <a href="{href}">{name}</a></li>')
+        html.append("</ul>")
 
-    html_content += """
-        </ul>
-    </body>
-    </html>
-    """
+    html.append("<h2>Files</h2>" if files else "<p class='muted'>No files in this folder</p>")
+    if files:
+        html.append("<ul>")
+        for name, full_path in sorted(files, key=lambda x: x[0].lower()):
+            href = f"{DEFAULT_PUBLIC_URL}/{bucket_name}/{quote(full_path)}"
+            html.append(f'<li>📄 <a href="{href}">{name}</a></li>')
+        html.append("</ul>")
 
-    return html_content
+    html.append("</body></html>")
+    return "\n".join(html)
 
 
-def write_html_to_bucket(bucket_name, html_content, prefix=None):
-    """
-    Upload the generated HTML page back to the GCS bucket as index.html.
-    """
-    logger.info("Writing HTML page")
-    client = storage.Client()
-    bucket = client.get_bucket(bucket_name)
-
-    # If prefix is provided, include it in the blob path
-    blob_path = f"{prefix}/index.html" if prefix else "index.html"
+def write_index(bucket, prefix, html):
+    blob_path = f"{prefix}index.html" if prefix else "index.html"
     blob = bucket.blob(blob_path)
+    blob.upload_from_string(html, content_type="text/html")
+    logger.info(f"Wrote index: {DEFAULT_PUBLIC_URL}/{bucket.name}/{blob_path}")
 
-    # Write the HTML content as index.html to the bucket
-    blob.upload_from_string(html_content, content_type="text/html")
-    logger.info(f"index.html has been written to http://{bucket_name}/{blob_path}")
+
+def process_directory_recursively(bucket, bucket_name, prefix=""):
+    """
+    Recursively process all directory levels starting from the given prefix.
+    Creates index.html files for each directory level encountered.
+    """
+    logger.info(f"Processing directory: {prefix or 'root'}")
+
+    # Get files and folders for current level
+    files, folders, normalized_prefix = list_level(bucket, prefix)
+
+    # Generate and write index for current level
+    html = generate_html(bucket_name, normalized_prefix or "", files, folders)
+    write_index(bucket, normalized_prefix or "", html)
+
+    # Recursively process each subdirectory
+    for folder_name, folder_prefix in folders:
+        # Remove trailing slash from folder_prefix for recursive call
+        clean_prefix = folder_prefix.rstrip("/")
+        process_directory_recursively(bucket, bucket_name, clean_prefix)
 
 
 def main():
-    """
-    Main entry point of the script.
-    """
-    logger.info("Starting storage index update")
-
-    # Get the bucket name and prefix from environment variables or use defaults
-    bucket_name = os.getenv("BUCKET_NAME", DEFAULT_BUCKET_NAME)
-    prefix = os.getenv("BUCKET_PREFIX", DEFAULT_PREFIX)
+    bucket_name = os.getenv("BUCKET_NAME", DEFAULT_BUCKET_NAME).strip()
+    prefix = os.getenv("BUCKET_PREFIX", DEFAULT_PREFIX).strip()
 
     if not bucket_name:
-        logger.error("Bucket name is not set or is blank")
-        raise ValueError("Bucket name is not set or is blank.")
+        raise ValueError("BUCKET_NAME is required")
+    if prefix is None:
+        raise ValueError("BUCKET_PREFIX is required (use '' for root, or e.g. 'bucket-folder-name')")
 
-    if not prefix:
-        logger.error("Bucket prefix is not set or is blank")
-        raise ValueError("Bucket prefix is not set or is blank.")
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
 
-    logger.info(f"Using bucket: {bucket_name}, prefix: {prefix}")
-
-    # List the contents of the bucket
-    file_names = list_bucket_contents(bucket_name, prefix)
-
-    # Generate the HTML page
-    html_content = generate_html_page(bucket_name, file_names, prefix)
-
-    # Write the HTML page back to the bucket as index.html
-    write_html_to_bucket(bucket_name, html_content, prefix)
-
-    logger.info("Storage index update completed successfully")
+    logger.info(f"Starting recursive index generation for bucket: {bucket_name}, prefix: '{prefix}'")
+    process_directory_recursively(bucket, bucket_name, prefix)
+    logger.info("Completed recursive index generation")
 
 
 if __name__ == "__main__":
