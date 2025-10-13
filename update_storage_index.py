@@ -14,7 +14,9 @@ from urllib.parse import quote
 
 from google.cloud import storage
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 DEFAULT_PUBLIC_URL = os.getenv("PUBLIC_URL", "https://storage.googleapis.com")
@@ -37,14 +39,14 @@ def list_level(bucket, prefix):
     files = []
     for blob in blobs_iter:
         # Only immediate children (thanks to delimiter)
-        name = blob.name[len(prefix):] if prefix else blob.name
+        name = blob.name[len(prefix) :] if prefix else blob.name
         if name and "/" not in name:
             files.append((name, blob.name))
 
     # 'prefixes' are subdirectory-like
     folders = []
     for sub_prefix in blobs_iter.prefixes:
-        name = sub_prefix[len(prefix):] if prefix else sub_prefix
+        name = sub_prefix[len(prefix) :] if prefix else sub_prefix
         folders.append((name, sub_prefix))
 
     return files, folders, prefix
@@ -55,7 +57,9 @@ def breadcrumb(bucket_name, prefix):
     Make breadcrumb HTML like: bucket / from-cover-to-code / ep1 /
     """
     parts = [] if not prefix else [p for p in prefix.strip("/").split("/") if p]
-    crumbs = [f'<a href="{DEFAULT_PUBLIC_URL}/{bucket_name}/index.html">/{bucket_name}</a>']
+    crumbs = [
+        f'<a href="{DEFAULT_PUBLIC_URL}/{bucket_name}/index.html">/{bucket_name}</a>'
+    ]
     accum = ""
     for p in parts:
         accum = f"{accum}{p}/"
@@ -88,7 +92,9 @@ def generate_html(bucket_name, prefix, files, folders):
             html.append(f'<li>📁 <a href="{href}">{name}</a></li>')
         html.append("</ul>")
 
-    html.append("<h2>Files</h2>" if files else "<p class='muted'>No files in this folder</p>")
+    html.append(
+        "<h2>Files</h2>" if files else "<p class='muted'>No files in this folder</p>"
+    )
     if files:
         html.append("<ul>")
         for name, full_path in sorted(files, key=lambda x: x[0].lower()):
@@ -135,12 +141,16 @@ def main():
     if not bucket_name:
         raise ValueError("BUCKET_NAME is required")
     if prefix is None:
-        raise ValueError("BUCKET_PREFIX is required (use '' for root, or e.g. 'bucket-folder-name')")
+        raise ValueError(
+            "BUCKET_PREFIX is required (use '' for root, or e.g. 'bucket-folder-name')"
+        )
 
     client = storage.Client()
     bucket = client.bucket(bucket_name)
 
-    logger.info(f"Starting recursive index generation for bucket: {bucket_name}, prefix: '{prefix}'")
+    logger.info(
+        f"Starting recursive index generation for bucket: {bucket_name}, prefix: '{prefix}'"
+    )
     process_directory_recursively(bucket, bucket_name, prefix)
     logger.info("Completed recursive index generation")
 
