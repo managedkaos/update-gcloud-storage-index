@@ -40,7 +40,7 @@ def list_level(bucket, prefix):
     for blob in blobs_iter:
         # Only immediate children (thanks to delimiter)
         name = blob.name[len(prefix) :] if prefix else blob.name
-        if name and "/" not in name:
+        if name and "/" not in name and name != "index.html":
             files.append((name, blob.name))
 
     # 'prefixes' are subdirectory-like
