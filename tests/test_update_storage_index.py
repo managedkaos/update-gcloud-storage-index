@@ -141,6 +141,98 @@ class TestUpdateStorageIndex(unittest.TestCase):
         self.assertIn("No subfolders", html)
         self.assertIn("No files in this folder", html)
 
+    def test_list_level_excludes_index_html(self):
+        """Test that list_level excludes index.html files from the results."""
+        # Mock bucket and blobs iterator
+        mock_bucket = MagicMock()
+        mock_blobs_iter = MagicMock()
+
+        # Create mock blobs including index.html
+        mock_blobs = []
+        file_names_with_index = ["file1.mp4", "index.html", "file2.mp4"]
+        for name in file_names_with_index:
+            mock_blob = MagicMock()
+            mock_blob.name = f"{self.prefix}/{name}"
+            mock_blobs.append(mock_blob)
+
+        mock_blobs_iter.__iter__ = lambda x: iter(mock_blobs)
+        mock_blobs_iter.prefixes = []
+        mock_bucket.list_blobs.return_value = mock_blobs_iter
+
+        files, folders, normalized_prefix = list_level(mock_bucket, self.prefix)
+
+        # Verify that index.html is excluded from files
+        expected_files = [
+            ("file1.mp4", f"{self.prefix}/file1.mp4"),
+            ("file2.mp4", f"{self.prefix}/file2.mp4")
+        ]
+        self.assertEqual(files, expected_files)
+
+        # Verify that index.html is not in the files list
+        file_names = [name for name, _ in files]
+        self.assertNotIn("index.html", file_names)
+
+    def test_generate_html_with_index_html_in_files_list(self):
+        """Test that generate_html still works correctly even if index.html is passed in files list.
+        Note: In normal operation, list_level filters out index.html, but this tests the generate_html function directly."""
+        # Include index.html in the files list to test that generate_html handles it
+        files = [
+            ("file1.mp4", "test-prefix/file1.mp4"),
+            ("index.html", "test-prefix/index.html"),
+            ("file2.mp4", "test-prefix/file2.mp4")
+        ]
+        folders = [("subdir/", "test-prefix/subdir/")]
+
+        html = generate_html(self.bucket_name, self.prefix, files, folders)
+
+        # Check that all files including index.html are included (since generate_html doesn't filter)
+        self.assertIn("file1.mp4", html)
+        self.assertIn("file2.mp4", html)
+        self.assertIn("index.html", html)  # This will be included since generate_html doesn't filter
+
+        # Verify the HTML structure is correct
+        self.assertIn("<!DOCTYPE html>", html)
+        self.assertIn("Files", html)
+
+    def test_end_to_end_index_html_exclusion(self):
+        """Test the complete flow to ensure index.html is excluded from final HTML."""
+        # Mock bucket and blobs iterator
+        mock_bucket = MagicMock()
+        mock_blobs_iter = MagicMock()
+
+        # Create mock blobs including index.html
+        mock_blobs = []
+        file_names_with_index = ["file1.mp4", "index.html", "file2.mp4"]
+        for name in file_names_with_index:
+            mock_blob = MagicMock()
+            mock_blob.name = f"{self.prefix}/{name}"
+            mock_blobs.append(mock_blob)
+
+        mock_blobs_iter.__iter__ = lambda x: iter(mock_blobs)
+        mock_blobs_iter.prefixes = []
+        mock_bucket.list_blobs.return_value = mock_blobs_iter
+
+        # Call list_level to get filtered files
+        files, folders, normalized_prefix = list_level(mock_bucket, self.prefix)
+
+        # Generate HTML with the filtered files
+        html = generate_html(self.bucket_name, self.prefix, files, folders)
+
+        # Verify that index.html is NOT in the final HTML as a file link
+        # (it may appear in breadcrumbs, which is expected)
+        # Check that there's no file link to index.html in the Files section
+        self.assertNotIn('<li>📄 <a href="https://storage.googleapis.com/test-bucket/test-prefix/index.html">index.html</a></li>', html)
+        # Also check that index.html doesn't appear as a file name in the Files section
+        self.assertNotIn('>index.html</a>', html)
+
+        # Verify that other files are still included
+        self.assertIn("file1.mp4", html)
+        self.assertIn("file2.mp4", html)
+
+        # Verify the HTML structure is correct
+        self.assertIn("<!DOCTYPE html>", html)
+        self.assertIn("Files", html)
+
     @patch("update_storage_index.logger")
     def test_write_index(self, mock_logger):
         """Test writing index to bucket."""

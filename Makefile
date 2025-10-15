@@ -40,7 +40,7 @@ isort:
 	isort *.py tests/*.py
 
 test:
-	python -m unittest ./tests/test_update_storage_index.py
+	python3 -m unittest ./tests/test_update_storage_index.py
 
 build: lint test
 	docker build --tag $(APP):$(TAG) .
