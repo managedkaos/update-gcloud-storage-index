@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 from update_storage_index import (
     breadcrumb,
     generate_html,
+    get_file_icon,
+    get_file_type,
     list_level,
     main,
     process_directory_recursively,
@@ -106,6 +108,100 @@ class TestUpdateStorageIndex(unittest.TestCase):
         self.assertIn("level2", result)
         self.assertIn("level1/level2/index.html", result)
 
+    def test_get_file_type_image(self):
+        """Test get_file_type function for image files."""
+        from update_storage_index import IMAGE_EXTENSIONS
+
+        for ext in IMAGE_EXTENSIONS:
+            filename = f"test{ext}"
+            self.assertEqual(get_file_type(filename), "image")
+
+        # Test case insensitive
+        self.assertEqual(get_file_type("test.JPG"), "image")
+        self.assertEqual(get_file_type("test.PNG"), "image")
+
+    def test_get_file_type_video(self):
+        """Test get_file_type function for video files."""
+        from update_storage_index import VIDEO_EXTENSIONS
+
+        for ext in VIDEO_EXTENSIONS:
+            filename = f"test{ext}"
+            self.assertEqual(get_file_type(filename), "video")
+
+        # Test case insensitive
+        self.assertEqual(get_file_type("test.MP4"), "video")
+        self.assertEqual(get_file_type("test.AVI"), "video")
+
+    def test_get_file_type_other(self):
+        """Test get_file_type function for other file types."""
+        other_files = ["test.txt", "test.pdf", "test.zip", "test.py", "test", "test.unknown"]
+        for filename in other_files:
+            self.assertEqual(get_file_type(filename), "other")
+
+    def test_get_file_icon_video(self):
+        """Test get_file_icon function for video files."""
+        from update_storage_index import VIDEO_EXTENSIONS
+
+        for ext in VIDEO_EXTENSIONS:
+            filename = f"test{ext}"
+            icon = get_file_icon(filename)
+            self.assertEqual(icon, "🎬")
+
+    def test_get_file_icon_documents(self):
+        """Test get_file_icon function for document files."""
+        test_cases = [
+            ("test.pdf", "📕"),
+            ("test.doc", "📘"),
+            ("test.docx", "📘"),
+            ("test.xls", "📊"),
+            ("test.xlsx", "📊"),
+            ("test.ppt", "📽️"),
+            ("test.pptx", "📽️"),
+            ("test.txt", "📄"),
+            ("test.csv", "📋"),
+        ]
+        for filename, expected_icon in test_cases:
+            self.assertEqual(get_file_icon(filename), expected_icon)
+
+    def test_get_file_icon_archives(self):
+        """Test get_file_icon function for archive files."""
+        archive_files = ["test.zip", "test.rar", "test.7z", "test.tar", "test.gz"]
+        for filename in archive_files:
+            icon = get_file_icon(filename)
+            self.assertEqual(icon, "📦")
+
+    def test_get_file_icon_code(self):
+        """Test get_file_icon function for code files."""
+        test_cases = [
+            ("test.py", "🐍"),
+            ("test.js", "📜"),
+            ("test.html", "🌐"),
+            ("test.css", "🎨"),
+            ("test.json", "📋"),
+        ]
+        for filename, expected_icon in test_cases:
+            self.assertEqual(get_file_icon(filename), expected_icon)
+
+    def test_get_file_icon_audio(self):
+        """Test get_file_icon function for audio files."""
+        audio_files = ["test.mp3", "test.wav", "test.flac", "test.ogg", "test.m4a"]
+        for filename in audio_files:
+            icon = get_file_icon(filename)
+            self.assertEqual(icon, "🎵")
+
+    def test_get_file_icon_default(self):
+        """Test get_file_icon function returns default icon for unknown extensions."""
+        unknown_files = ["test.unknown", "test", "test.xyz"]
+        for filename in unknown_files:
+            icon = get_file_icon(filename)
+            self.assertEqual(icon, "📄")  # Default icon
+
+    def test_get_file_icon_case_insensitive(self):
+        """Test get_file_icon function is case insensitive."""
+        self.assertEqual(get_file_icon("test.PDF"), "📕")
+        self.assertEqual(get_file_icon("test.MP4"), "🎬")
+        self.assertEqual(get_file_icon("test.PY"), "🐍")
+
     def test_generate_html_with_files_and_folders(self):
         """Test HTML generation with files and folders."""
         files = [("file1.mp4", "test-prefix/file1.mp4")]
@@ -133,6 +229,61 @@ class TestUpdateStorageIndex(unittest.TestCase):
             f"https://storage.googleapis.com/{self.bucket_name}/test-prefix/subdir/index.html",
             html,
         )
+
+        # Check grid layout is used
+        self.assertIn("file-grid", html)
+        self.assertIn("file-item", html)
+
+    def test_generate_html_with_image_files(self):
+        """Test HTML generation with image files uses img tags."""
+        files = [
+            ("image1.jpg", "test-prefix/image1.jpg"),
+            ("image2.png", "test-prefix/image2.png"),
+        ]
+
+        html = generate_html(self.bucket_name, self.prefix, files, [])
+
+        # Check that img tags are used for images
+        self.assertIn('<img src=', html)
+        self.assertIn('class="file-thumbnail"', html)
+        self.assertIn('loading="lazy"', html)
+        self.assertIn("image1.jpg", html)
+        self.assertIn("image2.png", html)
+
+    def test_generate_html_with_video_files(self):
+        """Test HTML generation with video files uses icons."""
+        files = [
+            ("video1.mp4", "test-prefix/video1.mp4"),
+            ("video2.avi", "test-prefix/video2.avi"),
+        ]
+
+        html = generate_html(self.bucket_name, self.prefix, files, [])
+
+        # Check that video icon is used (not img tag)
+        self.assertIn("🎬", html)
+        self.assertNotIn('<img src=', html)  # Videos should not use img tags
+        self.assertIn("video1.mp4", html)
+        self.assertIn("video2.avi", html)
+
+    def test_generate_html_with_mixed_files(self):
+        """Test HTML generation with mixed file types."""
+        files = [
+            ("image.jpg", "test-prefix/image.jpg"),
+            ("video.mp4", "test-prefix/video.mp4"),
+            ("document.pdf", "test-prefix/document.pdf"),
+        ]
+
+        html = generate_html(self.bucket_name, self.prefix, files, [])
+
+        # Check that images use img tags
+        self.assertIn('<img src=', html)
+        self.assertIn("image.jpg", html)
+
+        # Check that videos and other files use icons
+        self.assertIn("🎬", html)  # Video icon
+        self.assertIn("📕", html)  # PDF icon
+        self.assertIn("video.mp4", html)
+        self.assertIn("document.pdf", html)
 
     def test_generate_html_without_files_or_folders(self):
         """Test HTML generation without files or folders."""
@@ -220,10 +371,16 @@ class TestUpdateStorageIndex(unittest.TestCase):
 
         # Verify that index.html is NOT in the final HTML as a file link
         # (it may appear in breadcrumbs, which is expected)
-        # Check that there's no file link to index.html in the Files section
-        self.assertNotIn('<li>📄 <a href="https://storage.googleapis.com/test-bucket/test-prefix/index.html">index.html</a></li>', html)
-        # Also check that index.html doesn't appear as a file name in the Files section
-        self.assertNotIn('>index.html</a>', html)
+        # Check that index.html doesn't appear as a file name in the Files section
+        # We check for the pattern that would appear in the grid layout
+        # Note: HTML uses single quotes for class attributes
+        file_items = html.split("class='file-item'")
+        for item in file_items[1:]:  # Skip first empty split
+            # Check that index.html is not in any file item
+            self.assertNotIn("index.html", item)
+
+        # Verify that file items exist (for the other files)
+        self.assertIn("class='file-item'", html)
 
         # Verify that other files are still included
         self.assertIn("file1.mp4", html)
